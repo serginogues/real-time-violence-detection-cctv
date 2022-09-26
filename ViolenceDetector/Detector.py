@@ -1,59 +1,99 @@
 import os
 import cv2
+import shutil
 from tqdm import tqdm
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
+from sklearn.utils import shuffle
 from .architectures import vg19_lstm, seed_constant
-from .utils import capture_video, preprocess_frame, crop_img
+from .utils import capture_video, crop_img, clear_folder, BatchTraining, preprocess_frame
 
 tf.random.set_seed(seed_constant)
 
 
 class Detector:
-    def __init__(self, weights=None, clip_size: int = 40, image_size: int = 160, learning_rate: float = 0.0005):
+    def __init__(self, weights=None,
+                 clip_size: int = 40, image_size: int = 160,
+                 learning_rate: float = 0.0005, batch_size=32):
         """
         If weights are provided, then they are loaded and the model is ready for inference
         , otherwise the model will be ready for training.
+        Use batch_size=None to load all dataset in memory and train without a Generator.
         """
         self.lr = learning_rate
         self.clip_size = clip_size
         self.image_size = image_size
         self.model = vg19_lstm(weights, clip_size, image_size, learning_rate)
+        self.all_images_path = os.path.join(os.path.dirname(__file__), 'dataset/all_images')
+        self.batch_size = batch_size
 
     def load_dataset(self, path: str):
         x = []
         y = []
-        for dir in os.listdir(path):
-            clase = os.path.join(path, dir)  # dataset/train/fights
-            for v in tqdm(os.listdir(clase), desc='loading  videos from ' + clase):
-                filename = os.path.join(clase, v)  # dataset/train/fights/vid1.mp4
-                x.append(capture_video(filename=filename, clip_size=self.clip_size, image_size=self.image_size))
-                y.append(1) if dir == 'fights' else y.append(0)
-        return np.array(x), tf.keras.utils.to_categorical(y)
+        batch_train = True if self.batch_size is not None else False
+
+        for clase in os.listdir(path):
+            class_dir = os.path.join(path, clase)  # dataset/train/fights
+            for v in tqdm(os.listdir(class_dir), desc='loading  videos from ' + class_dir):
+                filename = os.path.join(class_dir, v)  # dataset/train/fights/vid1.mp4
+                y.append(1) if clase == 'fights' else y.append(0)
+
+                # if not batch store all dataset in memory, else store filenames and save copy imgs to ./dataset/all_images
+                if not batch_train:
+                    x.append(capture_video(filename=filename, clip_size=self.clip_size, image_size=self.image_size))
+                else:
+                    # copy imgs
+                    shutil.copy(filename, self.all_images_path)
+                    x.append(os.path.join(self.all_images_path, v))
+
+        if not batch_train:
+            return np.array(x), tf.keras.utils.to_categorical(y)
+        else:
+            # x_path = './dataset/filenames.npy'
+            # y_path = './dataset/y_labels_one_hot.npy'
+            x, y = shuffle(x, y)  # we have to manually suffle
+            y = tf.keras.utils.to_categorical(y)
+            return BatchTraining(image_filenames=x, labels=y, batch_size=self.batch_size, clip_size=self.clip_size,
+                                 image_size=self.image_size)
 
     def train(self, dataset: str,
-              epochs: int = 10, batch_size: int = 1,
+              epochs: int = 10,
               plot: bool = True):
 
         earlyStopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5,
                                                          min_delta=1e-5, verbose=0,
                                                          mode='min', restore_best_weights=True)
-        mcp_save = tf.keras.callbacks.ModelCheckpoint('checkpoint.hdf5', save_best_only=True,
+        mcp_save = tf.keras.callbacks.ModelCheckpoint('checkpoint_custom1.hdf5', save_best_only=True,
                                                       monitor='val_loss', mode='min')
         reduce_lr_loss = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', patience=1,
                                                               verbose=2, factor=0.5, min_lr=0.0000001)
 
-        clips_train, labels_train = self.load_dataset(os.path.join(dataset, 'train'))
-        clips_valid, labels_valid = self.load_dataset(os.path.join(dataset, 'valid'))
+        if self.batch_size is None:
+            clips_train, labels_train = self.load_dataset(os.path.join(dataset, 'train'))
+            clips_valid, labels_valid = self.load_dataset(os.path.join(dataset, 'valid'))
 
-        train_hist = self.model.fit(x=clips_train, y=labels_train,
-                                    epochs=epochs,
-                                    batch_size=batch_size,
-                                    shuffle=True,
-                                    callbacks=[earlyStopping, mcp_save, reduce_lr_loss],
-                                    verbose=1,
-                                    validation_data=(clips_valid, labels_valid))
+            train_hist = self.model.fit(x=clips_train, y=labels_train,
+                                        epochs=epochs,
+                                        batch_size=1,
+                                        shuffle=True,
+                                        callbacks=[earlyStopping, mcp_save, reduce_lr_loss],
+                                        verbose=1,
+                                        validation_data=(clips_valid, labels_valid))
+
+        else:
+            my_training_batch_generator = self.load_dataset(os.path.join(dataset, 'train'))
+            my_validation_batch_generator = self.load_dataset(os.path.join(dataset, 'valid'))
+
+            train_hist = self.model.fit(x=my_training_batch_generator,
+                                        epochs=epochs,
+                                        steps_per_epoch=int(len(my_training_batch_generator.image_filenames) // self.batch_size),
+                                        callbacks=[earlyStopping, mcp_save, reduce_lr_loss],
+                                        verbose=1,
+                                        validation_data=my_validation_batch_generator,
+                                        validation_steps=int(len(my_validation_batch_generator.image_filenames) // self.batch_size))
+
+            clear_folder(self.all_images_path)
 
         print("End training")
 
