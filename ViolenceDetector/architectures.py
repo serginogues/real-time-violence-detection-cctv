@@ -8,7 +8,7 @@ random.seed(seed_constant)
 tf.random.set_seed(seed_constant)
 
 
-def vg19_lstm():
+def vg19_lstm(input_size: int = 40):
     """
     Official Implementation of 'Robust Real-Time Violence Detection in Video Using CNN And LSTM'
     # Read sequence of frames in 4d tensor (frame, H, W, RGB)
@@ -35,9 +35,9 @@ def vg19_lstm():
 
     model = tf.keras.models.Sequential()
 
-    model.add(tf.keras.layers.TimeDistributed(cnn, input_shape=(30, 160, 160, 3)))
+    model.add(tf.keras.layers.TimeDistributed(cnn, input_shape=(input_size, 160, 160, 3)))
 
-    model.add(tf.keras.layers.LSTM(30, return_sequences=True))
+    model.add(tf.keras.layers.LSTM(input_size, return_sequences=True))
 
     model.add(tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(90)))
     model.add(tf.keras.layers.Dropout(0.1))

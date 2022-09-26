@@ -4,16 +4,17 @@ from .utils import *
 
 
 class Detector:
-    def __init__(self, dataset: str):
-        self.model = vg19_lstm()
+    def __init__(self, dataset: str, input_size: int = 40):
+        self.input_size = input_size
+        self.model = vg19_lstm(input_size)
         self.dataset_path = dataset
 
-    def train(self, lr: float = 0.0005, epochs: int = 50, batch_size: int = 3, plot: bool = True):
+    def train(self, lr: float = 0.0005, epochs: int = 10, batch_size: int = 1, plot: bool = True):
 
         optimizer = tf.keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
         self.model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=["accuracy"])
 
-        earlyStopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=8,
+        earlyStopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5,
                                                          min_delta=1e-5, verbose=0,
                                                          mode='min', restore_best_weights=True)
         mcp_save = tf.keras.callbacks.ModelCheckpoint('checkpoint.hdf5', save_best_only=True,
@@ -51,3 +52,6 @@ class Detector:
             return True, out[0][1]
         else:
             return False, out[0][1]
+
+    def run_video(self, path: str, save: bool):
+        pass
