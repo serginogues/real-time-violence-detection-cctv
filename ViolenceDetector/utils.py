@@ -1,29 +1,5 @@
-import os
 import cv2
 import numpy as np
-from tqdm import tqdm
-import tensorflow as tf
-
-
-def load_dataset(path: str):
-    """
-    :return: X_train, y_train, X_valid, y_valid where X.shape = (# clips, 40, 160, 160, 3)
-    """
-    videos_train, labels_train = read_video_repo(os.path.join(path, 'train'))
-    videos_valid, labels_valid = read_video_repo(os.path.join(path, 'valid'))
-    return videos_train, labels_train, videos_valid, labels_valid
-
-
-def read_video_repo(path: str):
-    x = []
-    y = []
-    for dir in os.listdir(path):
-        clase = os.path.join(path, dir)  # dataset/train/fights
-        for v in tqdm(os.listdir(clase), desc='loading  videos from '+ clase):
-            filename = os.path.join(clase, v)  # dataset/train/fights/vid1.mp4
-            x.append(capture_video(filename))
-            y.append(1) if dir == 'fights' else y.append(0)
-    return np.array(x), tf.keras.utils.to_categorical(y)
 
 
 def capture_video(filename: str, clip_size: int = 40, image_size: int = 160):

@@ -1,18 +1,39 @@
+import os
+from tqdm import tqdm
 import matplotlib as plt
-from .architectures import *
-from .utils import *
+import tensorflow as tf
+import numpy as np
+from .architectures import vg19_lstm, seed_constant
+from .utils import capture_video
+
+tf.random.set_seed(seed_constant)
 
 
 class Detector:
-    def __init__(self, dataset: str, input_size: int = 40):
-        self.input_size = input_size
-        self.model = vg19_lstm(input_size)
-        self.dataset_path = dataset
+    def __init__(self, weights=None, clip_size: int = 40, image_size: int = 160, learning_rate: float = 0.0005):
+        """
+        If weights are provided, then they are loaded and the model is ready for inference
+        , otherwise the model will be ready for training.
+        """
+        self.lr = learning_rate
+        self.clip_size = clip_size
+        self.image_size = image_size
+        self.model = vg19_lstm(weights, clip_size, image_size, learning_rate)
 
-    def train(self, lr: float = 0.0005, epochs: int = 10, batch_size: int = 1, plot: bool = True):
+    def load_dataset(self, path: str):
+        x = []
+        y = []
+        for dir in os.listdir(path):
+            clase = os.path.join(path, dir)  # dataset/train/fights
+            for v in tqdm(os.listdir(clase), desc='loading  videos from ' + clase):
+                filename = os.path.join(clase, v)  # dataset/train/fights/vid1.mp4
+                x.append(capture_video(filename=filename, clip_size=self.clip_size, image_size=self.image_size))
+                y.append(1) if dir == 'fights' else y.append(0)
+        return np.array(x), tf.keras.utils.to_categorical(y)
 
-        optimizer = tf.keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-        self.model.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=["accuracy"])
+    def train(self, dataset: str,
+              epochs: int = 10, batch_size: int = 1,
+              plot: bool = True):
 
         earlyStopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5,
                                                          min_delta=1e-5, verbose=0,
@@ -22,15 +43,18 @@ class Detector:
         reduce_lr_loss = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', patience=1,
                                                               verbose=2, factor=0.5, min_lr=0.0000001)
 
-        clips_train, labels_train, clips_valid, labels_valid = load_dataset(self.dataset_path)
+        clips_train, labels_train = self.load_dataset(os.path.join(dataset, 'train'))
+        clips_valid, labels_valid = self.load_dataset(os.path.join(dataset, 'valid'))
 
         train_hist = self.model.fit(x=clips_train, y=labels_train,
                                     epochs=epochs,
                                     batch_size=batch_size,
+                                    shuffle=True,
                                     callbacks=[earlyStopping, mcp_save, reduce_lr_loss],
                                     verbose=1,
                                     validation_data=(clips_valid, labels_valid))
-        self.model.evaluate(clips_valid, labels_valid)
+
+        print("End training")
 
         if plot:
             epochs = range(len(train_hist.history['loss']))
@@ -40,6 +64,20 @@ class Detector:
             plt.plot(epochs, train_hist.history['val_accuracy'], label='val_accuracy')
             plt.legend()
             plt.show()
+
+    def evaluate(self, dataset: str):
+        """
+        self.model.predict(np.expand_dims(X[idx], axis=0))
+
+        Parameters
+        ----------
+        dataset
+            path to dataset with two subfolders 'train' and 'valid', each with two subfolders 'fights' and 'nofights'
+            containing the trimmed videos.
+        """
+
+        X, y = self.load_dataset(os.path.join(dataset, 'valid'))
+        self.model.evaluate(X, y)
 
     def predict(self, video, prob_violence: int = 0.95):
         """
