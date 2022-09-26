@@ -1,10 +1,11 @@
 import os
+import cv2
 from tqdm import tqdm
 import matplotlib as plt
 import tensorflow as tf
 import numpy as np
 from .architectures import vg19_lstm, seed_constant
-from .utils import capture_video
+from .utils import capture_video, preprocess_frame, crop_img
 
 tf.random.set_seed(seed_constant)
 
@@ -92,17 +93,82 @@ class Detector:
             print("Correct predictions: " + str(correct) + " out of " + str(len(X)))
             print("Accuracy (%): " + str(np.round(acc, 2)))
 
-    def predict(self, video, prob_violence: int = 0.95):
+    def forward(self, video, prob_violence: int = 0.95):
         """
         :param prob_violence: probability threshold to consider the video violent
         :param video: array of shape (1, 30, 160, 160, 3)
-        :return: (True/False, prob)
+        :return: (if Violence, probability)
         """
-        out = self.model(video)
+        out = self.model.predict(video)
         if out[0][1] >= prob_violence:
             return True, out[0][1]
         else:
             return False, out[0][1]
 
-    def run_video(self, path: str, save: bool):
-        pass
+    def run_video(self, path: str, stride: int = 2, save: bool = True):
+        vid = cv2.VideoCapture(path)
+        frame_id = 0
+        clip_idx = 0
+        seq = []
+        clip = np.zeros((self.clip_size, self.image_size, self.image_size, 3), dtype=np.float)
+        isViolence = False
+        prob = 0
+
+        video_name = os.path.splitext(os.path.basename(path))[0]
+        if save:
+            # by default VideoCapture returns float instead of int
+            width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = int(vid.get(cv2.CAP_PROP_FPS))
+            codec = cv2.VideoWriter_fourcc(*'MP4V')
+            out_video = cv2.VideoWriter('output/'+video_name+'_output.mp4', codec, fps, (width, height))
+
+        while True:
+            return_value, frame = vid.read()
+            if frame_id == vid.get(cv2.CAP_PROP_FRAME_COUNT):
+                print("Video processing complete")
+                break
+            frame = crop_img(path, frame)
+            im_height, im_width, _ = frame.shape
+
+            if frame_id % stride == 0:
+                if clip_idx > (self.clip_size-1):
+                    # clip is complete for inference
+                    isViolence, prob = self.forward(np.expand_dims(clip, axis=0))
+                    if isViolence:
+                        """cv2.imshow('Violence level: ' + str(np.round(prob, 2)),
+                                   np.concatenate((clip[5], clip[15], clip[25], clip[35]), axis=1))
+                        cv2.waitKey(0)"""
+                        # if violence fight1 clip
+                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                        vio = cv2.VideoWriter("./output/" + video_name + '_' + str(frame_id) + ".avi", fourcc, 10.0, (im_width, im_height))
+                        # vio = cv2.VideoWriter("./videos/output-"+str(j)+".mp4", cv2.VideoWriter_fourcc(*'mp4v'), 10, (300, 400))
+                        for frameinss in seq:
+                            vio.write(frameinss)
+                        vio.release()
+                    clip_idx = 0
+                    clip = np.zeros((self.clip_size, self.image_size, self.image_size, 3), dtype=np.float)
+                    seq = []
+                else:
+                    seq.append(frame)
+                    clip[clip_idx, :, :, :] = preprocess_frame(frame, self.image_size)
+                    clip_idx += 1
+
+            frame_id += 1
+
+            mess = 'Violence!' if isViolence else 'No Violence'
+            color = (0, 0, 255) if isViolence else (0, 255, 0)
+            result = cv2.resize(frame, (int(im_width*0.6), int(im_height*0.6)))
+            result = cv2.putText(result, str(frame_id)+': '+mess+' ('+str(np.round(prob, 3))+')', (int(im_width * 0.05), int(im_height * 0.05)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1, color, 2, lineType=cv2.LINE_AA)
+            cv2.imshow('', result)
+            # Press Q on keyboard to exit
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+            if save:
+                out_video.write(result)
+
+        vid.release()
+        cv2.destroyAllWindows()

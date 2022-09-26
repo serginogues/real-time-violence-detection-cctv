@@ -28,3 +28,17 @@ def preprocess_frame(frame, image_size: int):
     # frm = np.expand_dims(frm, axis=0)
     return frm
 
+
+def crop_img(video: str, frame):
+    if 'fight1' in video:
+        return frame[100:600, 500:1000, :]
+    elif 'fight2' in video:
+        # frame[110:, 350:, :]
+        return frame[110:600, 700:, :]
+    elif any(word in video for word in ['fight3', 'fight4', 'fight5', 'fight6']):
+        # frame[110:, 700:1880, :]
+        return frame[:, 300:, :]
+    else:
+        return frame
+
+
