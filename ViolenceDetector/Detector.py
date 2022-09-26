@@ -65,7 +65,7 @@ class Detector:
             plt.legend()
             plt.show()
 
-    def evaluate(self, dataset: str):
+    def evaluate(self, dataset: str, batch: bool = False):
         """
         self.model.predict(np.expand_dims(X[idx], axis=0))
 
@@ -74,10 +74,23 @@ class Detector:
         dataset
             path to dataset with two subfolders 'train' and 'valid', each with two subfolders 'fights' and 'nofights'
             containing the trimmed videos.
+        batch
+            if True, does model.evaluate, else evaluates one clip per step
         """
 
         X, y = self.load_dataset(os.path.join(dataset, 'valid'))
-        self.model.evaluate(X, y)
+
+        if batch:
+            self.model.evaluate(X, y)
+        else:
+            correct = 0
+            for idx in tqdm(range(len(X)), desc='Evaluating'):
+                pred = self.model.predict(np.expand_dims(X[idx], axis=0))
+                if np.argmax(pred) == np.argmax(y[idx]):
+                    correct += 1
+            acc = 100*correct/len(X)
+            print("Correct predictions: " + str(correct) + " out of " + str(len(X)))
+            print("Accuracy (%): " + str(np.round(acc, 2)))
 
     def predict(self, video, prob_violence: int = 0.95):
         """
