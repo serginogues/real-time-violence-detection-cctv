@@ -4,6 +4,9 @@ import cv2
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
+from joblib import Parallel, delayed
+import multiprocessing
+import subprocess
 
 
 def capture_video(filename: str, clip_size: int = 40, image_size: int = 160):
@@ -69,10 +72,21 @@ class BatchTraining(tf.keras.utils.Sequence):
     def __len__(self):
         return (np.ceil(len(self.image_filenames) / float(self.batch_size))).astype(np.int)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, parallel_: bool = True):
         batch_x = self.image_filenames[idx * self.batch_size: (idx + 1) * self.batch_size]
         batch_y = self.labels[idx * self.batch_size: (idx + 1) * self.batch_size]
-        batch_x = np.array([capture_video(filename=x, clip_size=self.clip_size, image_size=self.image_size)
-                            for x in tqdm(batch_x, desc='Preprocessing')])
+
+        if parallel_:
+            NJOBS = multiprocessing.Pool()._processes
+
+            def your_function_Parallel(your_iterable, NJOBS):
+                return Parallel(n_jobs=NJOBS)(delayed(capture_video)(filename=x, clip_size=self.clip_size, image_size=self.image_size)
+                                              for x in tqdm(your_iterable, desc='Preprocessing'))
+            result = your_function_Parallel(batch_x, NJOBS)
+            batch_x = np.array(result)
+
+        else:
+            batch_x = np.array([capture_video(filename=x, clip_size=self.clip_size, image_size=self.image_size)
+                                for x in tqdm(batch_x, desc='Preprocessing')])
         return batch_x, batch_y
 
