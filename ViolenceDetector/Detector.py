@@ -27,6 +27,7 @@ class Detector:
         self.model = vg19_lstm(weights, clip_size, image_size, learning_rate)
         self.all_images_path = os.path.join(os.path.dirname(__file__), 'dataset/all_images')
         self.batch_size = batch_size
+        self.prob_history = []
 
     def load_dataset(self, path: str):
         x = []
@@ -133,17 +134,24 @@ class Detector:
             print("Correct predictions: " + str(correct) + " out of " + str(len(X)))
             print("Accuracy (%): " + str(np.round(acc, 2)))
 
-    def forward(self, video, prob_violence: int = 0.95):
+    def forward(self, video, prob_violence: int = 0.8):
         """
         :param prob_violence: probability threshold to consider the video violent
         :param video: array of shape (1, 30, 160, 160, 3)
         :return: (if Violence, probability)
         """
         out = self.model.predict(video)
-        if out[0][1] >= prob_violence:
-            return True, out[0][1]
-        else:
-            return False, out[0][1]
+        self.prob_history.append(out[0][1])
+
+        """if out[0][1] >= prob_violence:
+                    return True, out[0][1]
+                else:
+                    return False, out[0][1]"""
+        is_V = False
+        if len(self.prob_history) > 1 and self.prob_history[-1] >= prob_violence and self.prob_history[-2] >= prob_violence:
+            is_V = True
+
+        return is_V, self.prob_history[-1]
 
     def run_video(self, path: str, stride: int = 2, save: bool = True):
         vid = cv2.VideoCapture(path)
@@ -165,43 +173,40 @@ class Detector:
 
         while True:
             return_value, frame = vid.read()
-            if frame_id == vid.get(cv2.CAP_PROP_FRAME_COUNT):
+            if return_value == False or frame_id == vid.get(cv2.CAP_PROP_FRAME_COUNT):
                 print("Video processing complete")
                 break
-            frame = crop_img(path, frame)
+            new_frame = crop_img(path, frame)
             im_height, im_width, _ = frame.shape
 
             if frame_id % stride == 0:
                 if clip_idx > (self.clip_size-1):
                     # clip is complete for inference
                     isViolence, prob = self.forward(np.expand_dims(clip, axis=0))
-                    if isViolence:
-                        """cv2.imshow('Violence level: ' + str(np.round(prob, 2)),
-                                   np.concatenate((clip[5], clip[15], clip[25], clip[35]), axis=1))
-                        cv2.waitKey(0)"""
+                    """if isViolence:
                         # if violence fight1 clip
                         fourcc = cv2.VideoWriter_fourcc(*'XVID')
                         vio = cv2.VideoWriter("./output/" + video_name + '_' + str(frame_id) + ".avi", fourcc, 10.0, (im_width, im_height))
                         # vio = cv2.VideoWriter("./videos/output-"+str(j)+".mp4", cv2.VideoWriter_fourcc(*'mp4v'), 10, (300, 400))
                         for frameinss in seq:
                             vio.write(frameinss)
-                        vio.release()
+                        vio.release()"""
                     clip_idx = 0
                     clip = np.zeros((self.clip_size, self.image_size, self.image_size, 3), dtype=np.float)
                     seq = []
                 else:
-                    seq.append(frame)
-                    clip[clip_idx, :, :, :] = preprocess_frame(frame, self.image_size)
+                    seq.append(new_frame)
+                    clip[clip_idx, :, :, :] = preprocess_frame(new_frame, self.image_size)
                     clip_idx += 1
 
             frame_id += 1
 
-            mess = 'Violence!' if isViolence else 'No Violence'
+            mess = 'Violence rate'
             color = (0, 0, 255) if isViolence else (0, 255, 0)
-            result = cv2.resize(frame, (int(im_width*0.6), int(im_height*0.6)))
-            result = cv2.putText(result, str(frame_id)+': '+mess+' ('+str(np.round(prob, 3))+')', (int(im_width * 0.05), int(im_height * 0.05)),
+            # result = cv2.resize(frame, (int(im_width*0.6), int(im_height*0.6)))
+            result = cv2.putText(frame, mess+': '+str(np.round(prob, 3)), (int(im_width * 0.05), int(im_height * 0.05)),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        1, color, 2, lineType=cv2.LINE_AA)
+                        1, color, 1, lineType=cv2.LINE_AA)
             cv2.imshow('', result)
             # Press Q on keyboard to exit
             if cv2.waitKey(1) & 0xFF == ord('q'):

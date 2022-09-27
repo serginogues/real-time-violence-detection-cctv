@@ -2,7 +2,7 @@ import os
 from ViolenceDetector.Detector import Detector
 from config import *
 
-PATH = r'D:\ImotionAnalytics\Projects\ActionRecognition\test_videos\Violencia'
+PATH = r'data\ToProcess'
 STRIDE = 2
 
 if __name__ == '__main__':
